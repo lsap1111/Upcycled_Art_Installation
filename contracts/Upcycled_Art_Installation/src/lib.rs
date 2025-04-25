@@ -1,126 +1,124 @@
 #![allow(non_snake_case)]
 #![no_std]
-use soroban_sdk::{contract, contracttype, contractimpl, log, Env, Symbol, String, symbol_short, Address};
+use soroban_sdk::{contract, contracttype, contractimpl, log, Env, Symbol, String, symbol_short};
 
-// Define a structure for Tree Certificate
+// Structure to store information about an art piece
 #[contracttype]
 #[derive(Clone)]
-pub struct TreeCertificate {
-    pub certificate_id: u64,
-    pub tree_owner: Address,
-    pub tree_species: String,
-    pub location: String,
-    pub planting_date: u64,
+pub struct ArtPiece {
+    pub id: u64,
+    pub title: String,
+    pub artist: String,
+    pub materials: String,
+    pub creation_timestamp: u64,
     pub verified: bool,
 }
 
-// Store certificate count
-const CERTIFICATE_COUNT: Symbol = symbol_short!("CERT_CNT");
-// Mapping certificate to its ID
-#[contracttype] 
-pub enum CertificateBook { 
-    Certificate(u64)
+// For creating unique art piece IDs
+const ART_COUNT: Symbol = symbol_short!("ART_CNT");
+
+// Mapping art piece to its ID
+#[contracttype]
+pub enum ArtRegistry {
+    ArtPiece(u64)
 }
 
-// Statistics tracking
+// Summary data structure for platform statistics
 #[contracttype]
 #[derive(Clone)]
-pub struct CertificateStats {
-    pub total_certificates: u64,
-    pub verified_certificates: u64,
-    pub total_tree_species: u64,
+pub struct PlatformStats {
+    pub total_pieces: u64,
+    pub verified_pieces: u64,
 }
 
-// Stats storage key
-const STATS: Symbol = symbol_short!("STATS");
+// Key for storing platform stats
+const PLATFORM_STATS: Symbol = symbol_short!("STATS");
 
 #[contract]
-pub struct TreePlantingCertificate;
+pub struct UpcycledArtContract;
 
 #[contractimpl]
-impl TreePlantingCertificate {
-    // Create a new tree planting certificate
-    pub fn plant_tree(env: Env, owner: Address, species: String, location: String) -> u64 {
-        // Get current certificate count
-        let mut cert_count: u64 = env.storage().instance().get(&CERTIFICATE_COUNT).unwrap_or(0);
-        cert_count += 1;
+impl UpcycledArtContract {
+    // Register a new upcycled art piece
+    pub fn register_art(env: Env, title: String, artist: String, materials: String) -> u64 {
+        // Get current art count and increment
+        let mut art_count: u64 = env.storage().instance().get(&ART_COUNT).unwrap_or(0);
+        art_count += 1;
         
-        // Get current timestamp
-        let planting_time = env.ledger().timestamp();
-        
-        // Create certificate
-        let certificate = TreeCertificate {
-            certificate_id: cert_count,
-            tree_owner: owner,
-            tree_species: species,
-            location: location,
-            planting_date: planting_time,
+        // Create new art piece
+        let timestamp = env.ledger().timestamp();
+        let new_art = ArtPiece {
+            id: art_count,
+            title: title,
+            artist: artist,
+            materials: materials,
+            creation_timestamp: timestamp,
             verified: false,
         };
         
-        // Update statistics
-        let mut stats = Self::get_stats(env.clone());
-        stats.total_certificates += 1;
+        // Update platform stats
+        let mut stats = Self::get_platform_stats(env.clone());
+        stats.total_pieces += 1;
         
-        // Store certificate and updated data
-        env.storage().instance().set(&CertificateBook::Certificate(cert_count), &certificate);
-        env.storage().instance().set(&CERTIFICATE_COUNT, &cert_count);
-        env.storage().instance().set(&STATS, &stats);
+        // Store art piece and updated stats
+        env.storage().instance().set(&ArtRegistry::ArtPiece(art_count), &new_art);
+        env.storage().instance().set(&ART_COUNT, &art_count);
+        env.storage().instance().set(&PLATFORM_STATS, &stats);
         
         env.storage().instance().extend_ttl(5000, 5000);
         
-        log!(&env, "Tree certificate created with ID: {}", cert_count);
-        
-        return cert_count;
+        log!(&env, "Art piece registered with ID: {}", art_count);
+        return art_count;
     }
     
-    // Verify a tree planting certificate (admin function)
-    pub fn verify_certificate(env: Env, certificate_id: u64) {
-        // Get certificate
-        let key = CertificateBook::Certificate(certificate_id);
-        let mut certificate: TreeCertificate = env.storage().instance().get(&key)
-            .expect("Certificate not found");
+    // Verify an art piece (to be called by authorized curator/admin)
+    pub fn verify_art(env: Env, art_id: u64) {
+        let mut art_piece = Self::get_art_piece(env.clone(), art_id);
         
-        // Update verification status
-        if !certificate.verified {
-            certificate.verified = true;
+        if art_piece.id == 0 {
+            log!(&env, "Art piece with ID {} not found", art_id);
+            panic!("Art piece not found");
+        }
+        
+        // Only verify if not already verified
+        if !art_piece.verified {
+            art_piece.verified = true;
             
-            // Update stats
-            let mut stats = Self::get_stats(env.clone());
-            stats.verified_certificates += 1;
+            // Update platform stats
+            let mut stats = Self::get_platform_stats(env.clone());
+            stats.verified_pieces += 1;
             
-            // Store updated data
-            env.storage().instance().set(&key, &certificate);
-            env.storage().instance().set(&STATS, &stats);
+            // Store updated art piece and stats
+            env.storage().instance().set(&ArtRegistry::ArtPiece(art_id), &art_piece);
+            env.storage().instance().set(&PLATFORM_STATS, &stats);
             
             env.storage().instance().extend_ttl(5000, 5000);
             
-            log!(&env, "Certificate ID: {} has been verified", certificate_id);
+            log!(&env, "Art piece ID: {} is now verified", art_id);
         } else {
-            log!(&env, "Certificate already verified");
+            log!(&env, "Art piece ID: {} is already verified", art_id);
         }
     }
     
-    // View a certificate by ID
-    pub fn view_certificate(env: Env, certificate_id: u64) -> TreeCertificate {
-        let key = CertificateBook::Certificate(certificate_id);
+    // Get information about an art piece by ID
+    pub fn get_art_piece(env: Env, art_id: u64) -> ArtPiece {
+        let key = ArtRegistry::ArtPiece(art_id);
         
-        env.storage().instance().get(&key).unwrap_or(TreeCertificate {
-            certificate_id: 0,
-            tree_owner: Address::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
-            tree_species: String::from_str(&env, "Not Found"),
-            location: String::from_str(&env, "Not Found"),
-            planting_date: 0,
+        env.storage().instance().get(&key).unwrap_or(ArtPiece {
+            id: 0,
+            title: String::from_str(&env, "Not Found"),
+            artist: String::from_str(&env, "Unknown"),
+            materials: String::from_str(&env, "Unknown"),
+            creation_timestamp: 0,
             verified: false,
         })
     }
     
-    // Get overall statistics
-    pub fn get_stats(env: Env) -> CertificateStats {
-        env.storage().instance().get(&STATS).unwrap_or(CertificateStats {
-            total_certificates: 0,
-            verified_certificates: 0,
-            total_tree_species: 0,
+    // Get platform statistics
+    pub fn get_platform_stats(env: Env) -> PlatformStats {
+        env.storage().instance().get(&PLATFORM_STATS).unwrap_or(PlatformStats {
+            total_pieces: 0,
+            verified_pieces: 0,
         })
     }
 }
